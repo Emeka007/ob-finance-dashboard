@@ -10,10 +10,9 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-const privateKey = fs.readFileSync(
-  path.join(__dirname, '../keys/private.pem'),
-  'utf8'
-);
+const privateKey = process.env.PRIVATE_KEY
+  ? process.env.PRIVATE_KEY.replace(/\\n/g, '\n')
+  : fs.readFileSync(path.join(__dirname, '../keys/private.pem'), 'utf8');
 
 const sessions = {};
 

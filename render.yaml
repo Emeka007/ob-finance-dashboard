@@ -1,0 +1,30 @@
+﻿services:
+  - type: web
+    name: ob-finance-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: ENABLE_BANKING_API
+        value: https://api.enablebanking.com
+      - key: REDIRECT_URI
+        sync: false
+      - key: APP_ID
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+
+  - type: web
+    name: ob-finance-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false
