@@ -1,5 +1,5 @@
 ﻿const express = require("express");
-const router = express.Router();
+const router = require("express").Router();
 const axios = require("axios");
 const dotenv = require("dotenv");
 const { generateJWT } = require("./auth");
@@ -23,15 +23,19 @@ const CO2_FACTORS = {
   entertainment: 0.001, income: 0, other: 0.004,
 };
 
-function categorise(transaction) {
-  const desc = (
-    transaction.remittance_information?.unstructured ||
-    transaction.remittanceInformationUnstructured || ""
-  ).toLowerCase();
-  const creditor = (transaction.creditor?.name || "").toLowerCase();
-  const combined = desc + " " + creditor;
+function extractDescription(tx) {
+  const ri = tx.remittance_information;
+  if (Array.isArray(ri) && ri.length > 0) return ri[0];
+  if (ri && typeof ri === "object") return ri.unstructured || null;
+  if (typeof ri === "string" && ri.trim()) return ri.trim();
+  return tx.note || tx.entry_reference || null;
+}
+
+function categorise(description) {
+  if (!description) return "other";
+  const text = description.toLowerCase();
   for (const [category, keywords] of Object.entries(CATEGORIES)) {
-    if (keywords.some(k => combined.includes(k))) return category;
+    if (keywords.some(k => text.includes(k))) return category;
   }
   return "other";
 }
@@ -49,14 +53,6 @@ function getType(tx, amount) {
   return parseFloat(amount) >= 0 ? "credit" : "debit";
 }
 
-function getDescription(tx) {
-  return tx.remittance_information?.unstructured ||
-    tx.remittanceInformationUnstructured ||
-    tx.creditor?.name ||
-    tx.debtor?.name ||
-    "Transaction";
-}
-
 router.get("/:account_uid", async (req, res) => {
   try {
     const { account_uid } = req.params;
@@ -66,26 +62,21 @@ router.get("/:account_uid", async (req, res) => {
     if (date_from) params.date_from = date_from;
     if (date_to) params.date_to = date_to;
 
-    console.log("Fetching transactions for:", account_uid, params);
-
     const response = await axios.get(
       process.env.ENABLE_BANKING_API + "/accounts/" + account_uid + "/transactions",
       { headers: { Authorization: "Bearer " + token }, params }
     );
 
-    console.log("Raw response:", JSON.stringify(response.data));
+    const raw = response.data;
+    const txList = raw.transactions || raw.booked || [];
+    const pending = raw.pending || [];
+    const allTx = [...txList, ...pending];
 
-    const booked = response.data.transactions || response.data.booked || [];
-    const pending = response.data.pending || [];
-    const raw = [...booked, ...pending];
-
-    console.log("Total transactions:", raw.length);
-
-    const enriched = raw.map(tx => {
+    const enriched = allTx.map(tx => {
       const amount = tx.transaction_amount?.amount || "0";
       const type = getType(tx, amount);
-      const description = getDescription(tx);
-      const category = categorise({ ...tx, remittanceInformationUnstructured: description });
+      const description = extractDescription(tx);
+      const category = categorise(description);
       const co2 = calculateCO2(amount, category);
       const finalAmount = type === "debit" ? -Math.abs(parseFloat(amount)) : Math.abs(parseFloat(amount));
       return {
@@ -93,7 +84,7 @@ router.get("/:account_uid", async (req, res) => {
         date: tx.booking_date || tx.value_date,
         amount: finalAmount,
         currency: tx.transaction_amount?.currency || "EUR",
-        description,
+        description: description || "Transaction",
         creditor: tx.creditor?.name || null,
         debtor: tx.debtor?.name || null,
         category,
@@ -130,5 +121,3 @@ router.get("/:account_uid", async (req, res) => {
 });
 
 module.exports = router;
-
-
